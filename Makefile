@@ -25,7 +25,7 @@ fmt: ## Format OpenTofu code
 	cd tf && tofu fmt -recursive
 
 validate: ## Validate OpenTofu configuration
-	cd tf && tofu validate
+	cd tf && tofu init -backend=false && tofu validate
 
 lint: fmt validate ## Run all linting and formatting
 

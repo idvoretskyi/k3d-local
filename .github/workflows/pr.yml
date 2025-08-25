@@ -248,7 +248,7 @@ jobs:
   pr-summary:
     name: PR Summary
     runs-on: ubuntu-latest
-    needs: [pr-validation, pr-security, pr-size-check]
+    needs: [check-pr-status, pr-validation, pr-security, pr-size-check]
     if: always() && needs.check-pr-status.outputs.should_run == 'true'
     
     steps:

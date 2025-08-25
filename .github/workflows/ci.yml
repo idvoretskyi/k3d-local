@@ -29,14 +29,10 @@ jobs:
         cd tf/
         tofu fmt -check -diff -recursive
 
-    - name: Initialize OpenTofu
+    - name: Initialize and validate OpenTofu
       run: |
         cd tf/
         tofu init -backend=false
-
-    - name: Validate OpenTofu configuration
-      run: |
-        cd tf/
         tofu validate
 
     - name: Check for security issues
@@ -246,7 +242,7 @@ jobs:
     - name: Test make fmt
       run: make fmt
 
-    - name: Test make validate  
+    - name: Test make validate (includes init)
       run: make validate
 
     - name: Test make create-tests
