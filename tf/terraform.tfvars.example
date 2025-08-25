@@ -93,3 +93,56 @@ enable_kube_state_metrics = true
 #     value = "grafana-piechart-panel"
 #   }
 # ]
+
+# Advanced Resource Configuration (all optional)
+# prometheus_resources = {
+#   requests = {
+#     memory = "512Mi"
+#     cpu    = "250m"
+#   }
+#   limits = {
+#     memory = "2Gi" 
+#     cpu    = "1000m"
+#   }
+# }
+
+# alertmanager_resources = {
+#   requests = {
+#     memory = "128Mi"
+#     cpu    = "100m"
+#   }
+#   limits = {
+#     memory = "512Mi"
+#     cpu    = "500m"
+#   }
+# }
+
+# grafana_resources = {
+#   requests = {
+#     memory = "256Mi"
+#     cpu    = "100m"
+#   }
+#   limits = {
+#     memory = "1Gi"
+#     cpu    = "500m"
+#   }
+# }
+
+# Ingress Configuration (all optional)
+# prometheus_ingress = {
+#   enabled = false
+#   hosts   = []
+# }
+
+# alertmanager_ingress = {
+#   enabled = false
+#   hosts   = []
+# }
+
+# grafana_ingress = {
+#   enabled = false
+#   hosts   = []
+# }
+
+# Additional Configuration (all optional)
+# grafana_additional_datasources = []
