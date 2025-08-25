@@ -170,6 +170,7 @@ jobs:
         ref: ${{ github.event.pull_request.head.sha }}
 
     - name: Run Trufflehog scan
+      if: github.event.pull_request.base.sha != github.event.pull_request.head.sha
       uses: trufflesecurity/trufflehog@main
       with:
         path: ./

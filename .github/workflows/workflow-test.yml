@@ -1,0 +1,125 @@
+name: Workflow Test
+
+# This workflow tests the CI pipeline itself
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of workflow test to run'
+        required: true
+        default: 'basic'
+        type: choice
+        options:
+        - basic
+        - security
+        - full
+
+jobs:
+  workflow-validation:
+    name: Validate Workflows
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Validate workflow YAML syntax
+      run: |
+        echo "Validating workflow files..."
+        for workflow in .github/workflows/*.yml; do
+          echo "Checking $workflow"
+          # Basic YAML syntax validation
+          python3 -c "import yaml; yaml.safe_load(open('$workflow'))" 2>/dev/null || {
+            echo "❌ YAML syntax error in $workflow"
+            exit 1
+          }
+          echo "✅ $workflow is valid YAML"
+        done
+        
+    - name: Check workflow triggers
+      run: |
+        echo "Checking workflow triggers..."
+        
+        # Check that CI workflow has proper triggers
+        if ! grep -q "on:" .github/workflows/ci.yml; then
+          echo "❌ CI workflow missing triggers"
+          exit 1
+        fi
+        
+        # Check for essential workflows
+        required_workflows=("ci.yml" "pr.yml" "integration.yml" "release.yml")
+        for workflow in "${required_workflows[@]}"; do
+          if [ ! -f ".github/workflows/$workflow" ]; then
+            echo "❌ Missing required workflow: $workflow"
+            exit 1
+          fi
+          echo "✅ Found $workflow"
+        done
+        
+    - name: Test security scanning logic
+      if: github.event.inputs.test_type == 'security' || github.event.inputs.test_type == 'full'
+      run: |
+        echo "Testing security scanning patterns..."
+        
+        # Create test files with potential secrets
+        echo 'password="secret123"' > test_secret.txt
+        echo 'api_key="sk-test123456789"' >> test_secret.txt
+        
+        # Test manual scanning patterns
+        if grep -r -i "password.*=.*['\"][^'\"]*['\"]" . --exclude-dir=.git --exclude="*.md" | grep -v "example" | grep -v "test" | grep -v "description"; then
+          echo "✅ Manual secret detection working (found test secrets)"
+        else
+          echo "❌ Manual secret detection not working"
+          exit 1
+        fi
+        
+        # Cleanup
+        rm -f test_secret.txt
+        
+        echo "✅ Security scanning logic validated"
+        
+    - name: Validate job dependencies
+      if: github.event.inputs.test_type == 'full'
+      run: |
+        echo "Checking job dependencies..."
+        
+        # Check that test job depends on validate job in CI
+        if ! grep -A 10 "test:" .github/workflows/ci.yml | grep -q "needs: validate"; then
+          echo "❌ Test job should depend on validate job"
+          exit 1
+        fi
+        
+        echo "✅ Job dependencies validated"
+        
+    - name: Check environment variables and secrets
+      run: |
+        echo "Checking workflow environment setup..."
+        
+        # Check that required environment variables are defined
+        if ! grep -q "TF_VERSION" .github/workflows/ci.yml; then
+          echo "❌ TF_VERSION environment variable not defined"
+          exit 1
+        fi
+        
+        echo "✅ Environment variables validated"
+        
+    - name: Summarize workflow test results
+      run: |
+        echo "=== Workflow Test Summary ==="
+        echo "Test type: ${{ github.event.inputs.test_type }}"
+        echo "✅ YAML syntax validation: PASSED"
+        echo "✅ Workflow triggers: PASSED"
+        echo "✅ Required workflows: PASSED"
+        echo "✅ Environment setup: PASSED"
+        
+        if [ "${{ github.event.inputs.test_type }}" == "security" ] || [ "${{ github.event.inputs.test_type }}" == "full" ]; then
+          echo "✅ Security scanning logic: PASSED"
+        fi
+        
+        if [ "${{ github.event.inputs.test_type }}" == "full" ]; then
+          echo "✅ Job dependencies: PASSED"
+        fi
+        
+        echo ""
+        echo "🎉 All workflow tests completed successfully!"
+        echo "The CI/CD pipeline is properly configured and ready for use."

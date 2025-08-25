@@ -81,11 +81,38 @@ docs: ## Generate/update documentation
 # Prerequisites check
 check-deps: ## Check if all dependencies are installed
 	@echo "Checking dependencies..."
-	@command -v colima >/dev/null 2>&1 || { echo "ERROR: colima is required but not installed."; exit 1; }
-	@command -v tofu >/dev/null 2>&1 || command -v terraform >/dev/null 2>&1 || { echo "ERROR: OpenTofu or Terraform is required but not installed."; exit 1; }
-	@command -v k3d >/dev/null 2>&1 || { echo "ERROR: k3d is required but not installed."; exit 1; }
-	@command -v kubectl >/dev/null 2>&1 || { echo "ERROR: kubectl is required but not installed."; exit 1; }
-	@echo "All dependencies are installed!"
+	@echo ""
+	@command -v colima >/dev/null 2>&1 || { \
+		echo "❌ colima is required but not installed."; \
+		echo "   Install with: brew install colima"; \
+		echo ""; \
+	}
+	@command -v tofu >/dev/null 2>&1 || command -v terraform >/dev/null 2>&1 || { \
+		echo "❌ OpenTofu or Terraform is required but not installed."; \
+		echo "   Install OpenTofu with: brew install opentofu"; \
+		echo "   Or Terraform with: brew install terraform"; \
+		echo ""; \
+	}
+	@command -v k3d >/dev/null 2>&1 || { \
+		echo "❌ k3d is required but not installed."; \
+		echo "   Install with: brew install k3d"; \
+		echo ""; \
+	}
+	@command -v kubectl >/dev/null 2>&1 || { \
+		echo "❌ kubectl is required but not installed."; \
+		echo "   Install with: brew install kubectl"; \
+		echo ""; \
+	}
+	@if command -v colima >/dev/null 2>&1 && \
+	   (command -v tofu >/dev/null 2>&1 || command -v terraform >/dev/null 2>&1) && \
+	   command -v k3d >/dev/null 2>&1 && \
+	   command -v kubectl >/dev/null 2>&1; then \
+		echo "✅ All dependencies are installed!"; \
+	else \
+		echo "⚠️  Some dependencies are missing. Install them with:"; \
+		echo "   brew install colima k3d opentofu kubectl"; \
+		exit 1; \
+	fi
 
 # Quick setup for new users
 setup: check-deps create-config ## Quick setup for new users

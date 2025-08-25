@@ -50,9 +50,10 @@ This directory contains GitHub Actions workflows for automated testing, validati
 ## Workflow Features
 
 ### Security
-- **Secret Scanning**: Trufflehog integration for credential detection
+- **Secret Scanning**: TruffleHog integration for credential detection with fallback manual scanning
 - **Sensitive File Detection**: Prevents accidental commit of secrets
 - **Security Best Practices**: Validates OpenTofu security configurations
+- **Conditional Scanning**: Smart detection of when to run security scans based on changes
 
 ### Testing Coverage
 - **Unit Tests**: Fast validation tests (`tests/run_tests.sh`)
