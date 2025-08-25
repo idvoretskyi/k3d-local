@@ -26,6 +26,33 @@ k3s_image       = "rancher/k3s:latest"
 
 # Network and Storage
 network_name = "k3d-local"
+cluster_timeout = 300
+
+# Environment variables (if needed)
+# environment_variables = [
+#   {
+#     key   = "MY_ENV_VAR"
+#     value = "my-value"
+#   }
+# ]
+
+# Container registries (if needed)
+# registries = [
+#   {
+#     name = "my-registry"
+#     host = "registry.example.com"
+#     port = 5000
+#   }
+# ]
+
+# Node labels (if needed)
+# labels = [
+#   {
+#     key          = "environment"
+#     value        = "development"
+#     node_filters = ["all"]
+#   }
+# ]
 
 # Volume mounts for development
 # volumes = [

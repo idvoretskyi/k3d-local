@@ -106,6 +106,7 @@ fi
 
 # Test 1: OpenTofu Configuration Validation
 run_test "OpenTofu format check" "cd ../tf && $TF_CMD fmt -check"
+run_test "OpenTofu initialization" "cd ../tf && $TF_CMD init -backend=false"
 run_test "OpenTofu configuration validation" "cd ../tf && $TF_CMD validate"
 
 # Test 2: Configuration file tests
@@ -118,9 +119,9 @@ run_test "Variable syntax validation" "cd ../tf && $TF_CMD validate -var-file=te
 # Test 4: Plan generation (dry run)
 log "Testing plan generation with example configuration..."
 if [ -f "../tf/terraform.tfvars" ]; then
-    run_test "Plan generation with existing config" "cd ../tf && $TF_CMD init -input=false && ($TF_CMD plan -input=false || true)"
+    run_test "Plan generation with existing config" "cd ../tf && ($TF_CMD plan -input=false || true)"
 else
-    run_test "Plan generation with example config" "cd ../tf && cp terraform.tfvars.example terraform.tfvars.test && $TF_CMD init -input=false && ($TF_CMD plan -var-file=terraform.tfvars.test -input=false || true) && rm terraform.tfvars.test"
+    run_test "Plan generation with example config" "cd ../tf && cp terraform.tfvars.example terraform.tfvars.test && ($TF_CMD plan -var-file=terraform.tfvars.test -input=false || true) && rm terraform.tfvars.test"
 fi
 
 # Test 5: Provider version constraints
