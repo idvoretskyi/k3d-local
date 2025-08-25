@@ -114,7 +114,7 @@ run_test "terraform.tfvars.example exists" "test -f ../tf/terraform.tfvars.examp
 run_test "All required .tf files exist" "test -f ../tf/main.tf && test -f ../tf/variables.tf && test -f ../tf/outputs.tf && test -f ../tf/versions.tf && test -f ../tf/monitoring.tf"
 
 # Test 3: Variable validation (syntax)
-run_test "Variable syntax validation" "cd ../tf && $TF_CMD validate -var-file=terraform.tfvars.example"
+run_test "Variable syntax validation" "cd ../tf && $TF_CMD init -backend=false >/dev/null 2>&1 && $TF_CMD validate -var-file=terraform.tfvars.example"
 
 # Test 4: Plan generation (dry run)
 log "Testing plan generation with example configuration..."
