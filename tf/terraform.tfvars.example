@@ -1,0 +1,68 @@
+# k3d Cluster Configuration
+cluster_name  = "local-dev"
+server_count  = 1
+agent_count   = 2
+
+# Port Mappings
+http_port     = 8080
+https_port    = 8443
+
+# Additional ports for development services
+# additional_ports = [
+#   {
+#     host         = 3001
+#     container    = 3001
+#     node_filters = ["loadbalancer"]
+#   }
+# ]
+
+# K3s Configuration
+k3s_server_args = [
+  "--disable=traefik",
+  "--disable=servicelb"
+]
+k3s_agent_args  = []
+k3s_image       = "rancher/k3s:latest"
+
+# Network and Storage
+network_name = "k3d-local"
+
+# Volume mounts for development
+# volumes = [
+#   {
+#     source       = "/tmp/k3d-local"
+#     destination  = "/tmp/shared"
+#     node_filters = ["all"]
+#   }
+# ]
+
+# Monitoring Configuration
+enable_monitoring             = true
+monitoring_namespace         = "monitoring"
+kube_prometheus_stack_version = "55.5.0"
+
+# Prometheus Configuration
+prometheus_retention     = "30d"
+prometheus_storage_size  = "10Gi"
+enable_prometheus_loadbalancer = true
+
+# Alertmanager Configuration  
+alertmanager_storage_size      = "2Gi"
+enable_alertmanager_loadbalancer = true
+
+# Grafana Configuration
+grafana_admin_password         = "admin"
+grafana_storage_size          = "5Gi"  
+enable_grafana_loadbalancer   = true
+
+# Component Toggles
+enable_node_exporter      = true
+enable_kube_state_metrics = true
+
+# Custom Helm Values (if needed)
+# kube_prometheus_stack_values = [
+#   {
+#     name  = "grafana.plugins"
+#     value = "grafana-piechart-panel"
+#   }
+# ]

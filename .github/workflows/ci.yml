@@ -1,0 +1,309 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  TF_VERSION: "1.6.0"
+
+jobs:
+  # Code quality and validation
+  validate:
+    name: Validate Code
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup OpenTofu
+      uses: opentofu/setup-opentofu@v1
+      with:
+        tofu_version: ${{ env.TF_VERSION }}
+
+    - name: Check OpenTofu formatting
+      run: |
+        cd tf/
+        tofu fmt -check -diff -recursive
+
+    - name: Initialize OpenTofu
+      run: |
+        cd tf/
+        tofu init -backend=false
+
+    - name: Validate OpenTofu configuration
+      run: |
+        cd tf/
+        tofu validate
+
+    - name: Check for security issues
+      run: |
+        # Check for hardcoded secrets
+        ! grep -r -i 'password.*=.*[^)]' tf/ | grep -v 'var\.' | grep -v 'description' | grep -v 'default.*=.*admin'
+        
+        # Check that sensitive outputs are marked
+        grep -A 5 'grafana_admin_password' tf/outputs.tf | grep -q 'sensitive.*=.*true'
+
+  # Unit tests
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: validate
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup OpenTofu
+      uses: opentofu/setup-opentofu@v1
+      with:
+        tofu_version: ${{ env.TF_VERSION }}
+
+    - name: Make test script executable
+      run: chmod +x tests/run_tests.sh
+
+    - name: Run unit tests
+      run: |
+        cd tests/
+        ./run_tests.sh
+
+  # Documentation checks
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check README exists
+      run: test -f README.md
+
+    - name: Check LICENSE exists
+      run: test -f LICENSE
+
+    - name: Check CONTRIBUTING guide exists
+      run: test -f CONTRIBUTING.md
+
+    - name: Check project structure documentation
+      run: |
+        # Verify documented structure matches reality
+        test -d tf/
+        test -f tf/main.tf
+        test -f tf/variables.tf
+        test -f tf/outputs.tf
+        test -f tf/versions.tf
+        test -f tf/monitoring.tf
+        test -f tf/terraform.tfvars.example
+        test -d tests/
+        test -f tests/run_tests.sh
+        test -f tests/integration_test.sh
+        test -f tests/README.md
+        test -f Makefile
+
+    - name: Check for broken links in documentation
+      run: |
+        # Check that referenced files in README exist
+        grep -o '\[.*\](.*\.md)' README.md | sed 's/.*(\(.*\))/\1/' | while read file; do
+          if [ ! -f "$file" ]; then
+            echo "Referenced file not found: $file"
+            exit 1
+          fi
+        done
+
+  # Configuration validation with different scenarios
+  config-validation:
+    name: Configuration Scenarios
+    runs-on: ubuntu-latest
+    needs: validate
+    
+    strategy:
+      matrix:
+        config:
+          - name: "minimal"
+            values: |
+              cluster_name = "test-minimal"
+              enable_monitoring = false
+          - name: "monitoring-enabled"
+            values: |
+              cluster_name = "test-monitoring"
+              enable_monitoring = true
+              grafana_admin_password = "test123"
+          - name: "custom-ports"
+            values: |
+              cluster_name = "test-custom"
+              http_port = 9080
+              https_port = 9443
+              additional_ports = []
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup OpenTofu
+      uses: opentofu/setup-opentofu@v1
+      with:
+        tofu_version: ${{ env.TF_VERSION }}
+
+    - name: Create test configuration
+      run: |
+        cd tf/
+        cat > test-${{ matrix.config.name }}.tfvars << EOF
+        ${{ matrix.config.values }}
+        EOF
+
+    - name: Initialize OpenTofu
+      run: |
+        cd tf/
+        tofu init -backend=false
+
+    - name: Validate configuration scenario
+      run: |
+        cd tf/
+        tofu plan -var-file=test-${{ matrix.config.name }}.tfvars -out=plan-${{ matrix.config.name }}.out
+
+    - name: Check plan output
+      run: |
+        cd tf/
+        tofu show -json plan-${{ matrix.config.name }}.out > plan-${{ matrix.config.name }}.json
+        
+        # Basic validation that plan contains expected resources
+        grep -q "k3d_cluster" plan-${{ matrix.config.name }}.json
+        
+        # Check monitoring resources based on configuration
+        if grep -q "enable_monitoring.*true" test-${{ matrix.config.name }}.tfvars; then
+          grep -q "kubernetes_namespace" plan-${{ matrix.config.name }}.json
+          grep -q "helm_release" plan-${{ matrix.config.name }}.json
+        fi
+
+  # Makefile targets validation
+  makefile:
+    name: Makefile Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup OpenTofu
+      uses: opentofu/setup-opentofu@v1
+      with:
+        tofu_version: ${{ env.TF_VERSION }}
+
+    - name: Test make help
+      run: make help
+
+    - name: Test make check-deps (expect failures)
+      run: |
+        # This will fail because k3d and colima aren't installed, but should show proper error messages
+        make check-deps || echo "Expected failure - dependencies not installed in CI"
+
+    - name: Test make create-config
+      run: |
+        make create-config
+        test -f tf/terraform.tfvars
+
+    - name: Test make fmt
+      run: make fmt
+
+    - name: Test make validate  
+      run: make validate
+
+    - name: Test make create-tests
+      run: |
+        # Remove existing tests first
+        rm -f tests/run_tests.sh
+        make create-tests
+        test -x tests/run_tests.sh
+
+  # Check file permissions and security
+  security:
+    name: Security Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check script permissions
+      run: |
+        # Test scripts should be executable
+        test -x tests/run_tests.sh
+        test -x tests/integration_test.sh
+
+    - name: Scan for secrets
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: main
+        head: HEAD
+        extra_args: --debug --only-verified
+
+    - name: Check for sensitive files
+      run: |
+        # Ensure no actual terraform.tfvars or state files are committed
+        if [ -f tf/terraform.tfvars ]; then
+          echo "ERROR: terraform.tfvars should not be committed"
+          exit 1
+        fi
+        
+        if [ -f tf/terraform.tfstate ]; then
+          echo "ERROR: terraform.tfstate should not be committed"
+          exit 1
+        fi
+        
+        # Check .gitignore includes important patterns
+        grep -q "terraform.tfvars" .gitignore
+        grep -q "*.tfstate" .gitignore
+        grep -q ".claude/" .gitignore
+
+  # Overall project health check
+  health-check:
+    name: Project Health
+    runs-on: ubuntu-latest
+    needs: [validate, test, docs, config-validation, makefile, security]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Project structure summary
+      run: |
+        echo "=== Project Structure ==="
+        find . -type f -name "*.tf" -o -name "*.yml" -o -name "*.yaml" -o -name "*.md" -o -name "Makefile" -o -name "*.sh" | grep -v ".git" | sort
+        
+        echo -e "\n=== OpenTofu Files ==="
+        ls -la tf/
+        
+        echo -e "\n=== Test Files ==="
+        ls -la tests/
+        
+        echo -e "\n=== Documentation Files ==="
+        ls -la *.md
+
+    - name: Verify open source readiness
+      run: |
+        echo "=== Open Source Readiness Check ==="
+        
+        # Check required files
+        files=(
+          "LICENSE"
+          "README.md" 
+          "CONTRIBUTING.md"
+          "tf/terraform.tfvars.example"
+          ".gitignore"
+        )
+        
+        for file in "${files[@]}"; do
+          if [ -f "$file" ]; then
+            echo "✅ $file exists"
+          else
+            echo "❌ $file missing"
+            exit 1
+          fi
+        done
+        
+        echo -e "\n✅ Repository is ready for open source release!"

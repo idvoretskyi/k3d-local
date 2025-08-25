@@ -1,0 +1,101 @@
+name: Question or Support
+description: Ask a question or get help with k3d-local
+title: "[Question] "
+labels: ["question", "triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question or need help? We're here to help! Please provide as much context as possible.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission checklist
+      options:
+        - label: I have searched existing issues and discussions
+          required: true
+        - label: I have read the README and documentation
+          required: true
+        - label: I have checked the troubleshooting section
+          required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Question Category
+      description: What area does your question relate to?
+      options:
+        - Installation and Setup
+        - Configuration
+        - Cluster Management
+        - Monitoring Stack
+        - Troubleshooting
+        - Testing
+        - Development Workflow
+        - Integration with other tools
+        - Best Practices
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+      placeholder: Please describe your question in detail
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and Background
+      description: Provide context about what you're trying to achieve
+      placeholder: What are you trying to accomplish? What's your use case?
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What Have You Tried?
+      description: What steps have you already taken to solve this?
+      placeholder: Commands run, documentation consulted, troubleshooting steps attempted, etc.
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment Information (if relevant)
+      description: Provide environment details if they might be relevant to your question
+      placeholder: |
+        - macOS version: 
+        - Colima version: 
+        - k3d version: 
+        - OpenTofu/Terraform version: 
+        - kubectl version: 
+      render: markdown
+    validations:
+      required: false
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration (if relevant)
+      description: Share relevant configuration details (remove sensitive data)
+      render: hcl
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Information
+      description: Any other relevant information, error messages, or context
+    validations:
+      required: false

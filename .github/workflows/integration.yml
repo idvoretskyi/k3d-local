@@ -1,0 +1,322 @@
+name: Integration Tests
+
+on:
+  # Run integration tests on main branch and PRs, but only when triggered manually or on schedule
+  workflow_dispatch:
+    inputs:
+      test_timeout:
+        description: 'Test timeout in minutes'
+        required: false
+        default: '15'
+        type: string
+  schedule:
+    # Run integration tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  # Uncomment to run on every push (resource intensive)
+  # push:
+  #   branches: [ main ]
+
+env:
+  TF_VERSION: "1.6.0"
+  TEST_TIMEOUT: ${{ github.event.inputs.test_timeout || '15' }}
+
+jobs:
+  integration-test:
+    name: Full Integration Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Free up disk space
+      run: |
+        # Free up space for k3d cluster
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /opt/hostedtoolcache/CodeQL
+        docker system prune -a -f
+
+    - name: Setup OpenTofu
+      uses: opentofu/setup-opentofu@v1
+      with:
+        tofu_version: ${{ env.TF_VERSION }}
+
+    - name: Install k3d
+      run: |
+        curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+        k3d version
+
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+
+    - name: Setup Docker (replace Colima for CI)
+      run: |
+        # Docker is already available in GitHub Actions
+        docker version
+        docker info
+
+    - name: Run integration tests
+      env:
+        CLEANUP_ON_FAILURE: "true"
+      run: |
+        chmod +x tests/integration_test.sh
+        
+        # Set timeout for the test
+        timeout ${TEST_TIMEOUT}m tests/integration_test.sh || {
+          exit_code=$?
+          if [ $exit_code -eq 124 ]; then
+            echo "Integration test timed out after ${TEST_TIMEOUT} minutes"
+          fi
+          exit $exit_code
+        }
+
+    - name: Collect logs on failure
+      if: failure()
+      run: |
+        echo "=== Docker containers ==="
+        docker ps -a
+        
+        echo -e "\n=== k3d clusters ==="
+        k3d cluster list || true
+        
+        echo -e "\n=== Kubernetes contexts ==="
+        kubectl config get-contexts || true
+        
+        echo -e "\n=== Recent Docker logs ==="
+        docker logs $(docker ps -q | head -1) --tail 50 2>/dev/null || echo "No containers running"
+        
+        echo -e "\n=== System resources ==="
+        df -h
+        free -m
+
+    - name: Cleanup on failure
+      if: always()
+      run: |
+        # Ensure cleanup even if tests fail
+        k3d cluster delete --all || true
+        docker system prune -a -f || true
+
+  # Test different configurations
+  config-matrix-test:
+    name: Configuration Matrix Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    timeout-minutes: 25
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: "minimal"
+            cluster_name: "ci-minimal"
+            monitoring: "false"
+            servers: 1
+            agents: 0
+          - name: "monitoring"
+            cluster_name: "ci-monitoring" 
+            monitoring: "true"
+            servers: 1
+            agents: 1
+          - name: "multi-node"
+            cluster_name: "ci-multinode"
+            monitoring: "false"
+            servers: 1
+            agents: 2
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup OpenTofu
+      uses: opentofu/setup-opentofu@v1
+      with:
+        tofu_version: ${{ env.TF_VERSION }}
+
+    - name: Install k3d and kubectl
+      run: |
+        curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+
+    - name: Create test configuration
+      run: |
+        cd tf/
+        cat > ci-${{ matrix.config.name }}.tfvars << EOF
+        cluster_name = "${{ matrix.config.cluster_name }}"
+        server_count = ${{ matrix.config.servers }}
+        agent_count = ${{ matrix.config.agents }}
+        enable_monitoring = ${{ matrix.config.monitoring }}
+        
+        # CI-optimized settings
+        http_port = 8080
+        https_port = 8443
+        
+        # Smaller resources for CI
+        prometheus_resources = {
+          requests = { memory = "256Mi", cpu = "100m" }
+          limits = { memory = "512Mi", cpu = "500m" }
+        }
+        grafana_resources = {
+          requests = { memory = "128Mi", cpu = "50m" }
+          limits = { memory = "256Mi", cpu = "200m" }
+        }
+        alertmanager_resources = {
+          requests = { memory = "64Mi", cpu = "50m" }
+          limits = { memory = "128Mi", cpu = "100m" }
+        }
+        
+        # Disable LoadBalancers for faster testing
+        enable_prometheus_loadbalancer = false
+        enable_alertmanager_loadbalancer = false
+        enable_grafana_loadbalancer = false
+        EOF
+
+    - name: Test cluster deployment
+      run: |
+        cd tf/
+        
+        # Initialize and apply
+        tofu init
+        tofu apply -var-file=ci-${{ matrix.config.name }}.tfvars -auto-approve
+        
+        # Wait for cluster to be ready
+        sleep 30
+        
+        # Verify cluster
+        kubectl config use-context k3d-${{ matrix.config.cluster_name }}
+        kubectl wait --for=condition=Ready nodes --all --timeout=120s
+        
+        # Check nodes count
+        expected_nodes=$((1 + ${{ matrix.config.agents }}))  # servers + agents
+        actual_nodes=$(kubectl get nodes --no-headers | wc -l)
+        
+        if [ "$actual_nodes" -ne "$expected_nodes" ]; then
+          echo "Node count mismatch. Expected: $expected_nodes, Actual: $actual_nodes"
+          kubectl get nodes
+          exit 1
+        fi
+        
+        echo "✅ Cluster ${{ matrix.config.cluster_name }} deployed successfully with $actual_nodes nodes"
+
+    - name: Test monitoring stack (if enabled)
+      if: matrix.config.monitoring == 'true'
+      run: |
+        kubectl config use-context k3d-${{ matrix.config.cluster_name }}
+        
+        # Wait for monitoring namespace
+        kubectl wait --for=condition=Ready --timeout=300s pods -n monitoring --all
+        
+        # Check monitoring components
+        kubectl get pods -n monitoring
+        
+        # Verify key components are running
+        prometheus_pods=$(kubectl get pods -n monitoring -l app.kubernetes.io/name=prometheus --no-headers | grep Running | wc -l)
+        grafana_pods=$(kubectl get pods -n monitoring -l app.kubernetes.io/name=grafana --no-headers | grep Running | wc -l)
+        
+        if [ "$prometheus_pods" -eq "0" ] || [ "$grafana_pods" -eq "0" ]; then
+          echo "Monitoring components not running properly"
+          kubectl get pods -n monitoring
+          exit 1
+        fi
+        
+        echo "✅ Monitoring stack verified"
+
+    - name: Cleanup
+      if: always()
+      run: |
+        cd tf/
+        tofu destroy -var-file=ci-${{ matrix.config.name }}.tfvars -auto-approve || true
+        k3d cluster delete ${{ matrix.config.cluster_name }} || true
+
+  # Performance and resource usage test
+  performance-test:
+    name: Performance Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 30
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup tools
+      run: |
+        curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+
+    - name: Setup OpenTofu
+      uses: opentofu/setup-opentofu@v1
+      with:
+        tofu_version: ${{ env.TF_VERSION }}
+
+    - name: Resource baseline
+      run: |
+        echo "=== Initial Resource Usage ==="
+        free -m
+        df -h
+        docker system df
+
+    - name: Deploy cluster with monitoring
+      run: |
+        cd tf/
+        
+        # Create performance test config
+        cat > perf-test.tfvars << EOF
+        cluster_name = "perf-test"
+        server_count = 1
+        agent_count = 2
+        enable_monitoring = true
+        
+        # Standard resource allocations
+        prometheus_retention = "7d"
+        prometheus_storage_size = "5Gi"
+        grafana_storage_size = "2Gi"
+        alertmanager_storage_size = "1Gi"
+        EOF
+        
+        # Time the deployment
+        start_time=$(date +%s)
+        
+        tofu init
+        tofu apply -var-file=perf-test.tfvars -auto-approve
+        
+        end_time=$(date +%s)
+        deployment_time=$((end_time - start_time))
+        
+        echo "Deployment completed in $deployment_time seconds"
+        
+        # Test cluster performance
+        kubectl config use-context k3d-perf-test
+        kubectl wait --for=condition=Ready nodes --all --timeout=180s
+        
+        # Wait for monitoring stack
+        kubectl wait --for=condition=Ready --timeout=300s pods -n monitoring --all
+        
+        echo "=== Final Resource Usage ==="
+        free -m
+        df -h
+        docker system df
+        
+        echo "=== Cluster Resource Usage ==="
+        kubectl top nodes || echo "Metrics server not available"
+        kubectl get pods -n monitoring -o wide
+        
+        # Performance summary
+        echo "=== Performance Summary ==="
+        echo "Deployment time: ${deployment_time}s"
+        echo "Cluster nodes: $(kubectl get nodes --no-headers | wc -l)"
+        echo "Running pods: $(kubectl get pods -A --no-headers | grep Running | wc -l)"
+
+    - name: Cleanup performance test
+      if: always()
+      run: |
+        cd tf/
+        tofu destroy -var-file=perf-test.tfvars -auto-approve || true
+        docker system prune -a -f || true

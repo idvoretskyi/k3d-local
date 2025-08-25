@@ -1,0 +1,55 @@
+# OpenTofu/Terraform
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfplan.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+*.auto.tfvars
+
+# Local environment files
+.env
+.env.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Kubeconfig files (if generated locally)
+kubeconfig*.yaml
+*.kubeconfig
+
+# Claude Code files
+.claude/
+.claude_history
+.claude_session
+claude_session.json
+
+# Development and IDE files
+.idea/
+*.swp
+*.swo
+.vscode/settings.json
+.vscode/launch.json
+
+# Temporary files
+*.tmp
+*.bak
+*~
+
+# OS-specific files  
+Thumbs.db
+*.DS_Store
+
+# Test artifacts
+tests/results/
+tests/*.log
+
+# Documentation generation
+docs/generated/

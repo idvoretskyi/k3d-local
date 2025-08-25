@@ -1,0 +1,278 @@
+name: Pull Request
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+env:
+  TF_VERSION: "1.6.0"
+
+jobs:
+  # Skip if draft PR
+  check-pr-status:
+    name: Check PR Status
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.pr_check.outputs.should_run }}
+    steps:
+    - name: Check if PR is ready
+      id: pr_check
+      run: |
+        if [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+          echo "should_run=false" >> $GITHUB_OUTPUT
+          echo "Skipping checks for draft PR"
+        else
+          echo "should_run=true" >> $GITHUB_OUTPUT
+          echo "Running checks for ready PR"
+        fi
+
+  # PR validation
+  pr-validation:
+    name: PR Validation
+    runs-on: ubuntu-latest
+    needs: check-pr-status
+    if: needs.check-pr-status.outputs.should_run == 'true'
+    
+    steps:
+    - name: Checkout PR
+      uses: actions/checkout@v4
+      with:
+        # Checkout the PR head
+        ref: ${{ github.event.pull_request.head.sha }}
+
+    - name: Setup OpenTofu
+      uses: opentofu/setup-opentofu@v1
+      with:
+        tofu_version: ${{ env.TF_VERSION }}
+
+    - name: Check PR title and description
+      run: |
+        # Check if PR has a meaningful title
+        title="${{ github.event.pull_request.title }}"
+        if [ ${#title} -lt 10 ]; then
+          echo "❌ PR title too short: '$title'"
+          echo "Please provide a more descriptive title (at least 10 characters)"
+          exit 1
+        fi
+        
+        # Check if PR has a description
+        body="${{ github.event.pull_request.body }}"
+        if [ ${#body} -lt 20 ]; then
+          echo "❌ PR description too short or missing"
+          echo "Please provide a meaningful description of your changes"
+          exit 1
+        fi
+        
+        echo "✅ PR title and description look good"
+
+    - name: Check for breaking changes
+      run: |
+        # Check if any critical files have been modified
+        git fetch origin main
+        
+        # Get list of changed files
+        changed_files=$(git diff --name-only origin/main...HEAD)
+        
+        breaking_files=(
+          "tf/variables.tf"
+          "tf/outputs.tf"  
+          "tf/versions.tf"
+        )
+        
+        has_breaking=false
+        for file in "${breaking_files[@]}"; do
+          if echo "$changed_files" | grep -q "^$file$"; then
+            echo "⚠️  Potentially breaking change detected in: $file"
+            has_breaking=true
+          fi
+        done
+        
+        if [ "$has_breaking" = "true" ]; then
+          echo ""
+          echo "Please ensure:"
+          echo "1. Changes are backward compatible"
+          echo "2. Documentation is updated"
+          echo "3. Version bump is considered"
+          echo ""
+          echo "If this is intentionally a breaking change, mention it in the PR description."
+        fi
+
+    - name: Validate OpenTofu changes
+      run: |
+        cd tf/
+        
+        # Check formatting
+        tofu fmt -check -diff
+        
+        # Initialize and validate
+        tofu init -backend=false
+        tofu validate
+        
+        # Test with example config
+        tofu plan -var-file=terraform.tfvars.example -out=pr-test.plan
+        
+        echo "✅ OpenTofu validation passed"
+
+    - name: Run tests on PR
+      run: |
+        chmod +x tests/run_tests.sh
+        cd tests/
+        ./run_tests.sh
+
+    - name: Check test coverage
+      run: |
+        # Count test cases in the test script
+        test_count=$(grep -c "run_test" tests/run_tests.sh || echo "0")
+        
+        if [ "$test_count" -lt 10 ]; then
+          echo "⚠️  Low test coverage: only $test_count test cases"
+          echo "Consider adding more tests for new functionality"
+        else
+          echo "✅ Good test coverage: $test_count test cases"
+        fi
+
+    - name: Check documentation updates
+      run: |
+        git fetch origin main
+        changed_files=$(git diff --name-only origin/main...HEAD)
+        
+        # If code changes, check if docs were updated
+        has_code_changes=false
+        has_doc_changes=false
+        
+        if echo "$changed_files" | grep -E '\.(tf|sh|yml|yaml)$'; then
+          has_code_changes=true
+        fi
+        
+        if echo "$changed_files" | grep -E '\.(md)$'; then
+          has_doc_changes=true
+        fi
+        
+        if [ "$has_code_changes" = "true" ] && [ "$has_doc_changes" = "false" ]; then
+          echo "⚠️  Code changes detected but no documentation updates"
+          echo "Consider updating README.md, CONTRIBUTING.md, or other relevant docs"
+        elif [ "$has_doc_changes" = "true" ]; then
+          echo "✅ Documentation updates included"
+        fi
+
+  # Security scan for PR
+  pr-security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: check-pr-status
+    if: needs.check-pr-status.outputs.should_run == 'true'
+    
+    steps:
+    - name: Checkout PR
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+
+    - name: Run Trufflehog scan
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: ${{ github.event.pull_request.base.sha }}
+        head: ${{ github.event.pull_request.head.sha }}
+        extra_args: --debug --only-verified
+
+    - name: Check for sensitive files
+      run: |
+        # Check if any sensitive files are being added
+        git fetch origin main
+        added_files=$(git diff --name-only --diff-filter=A origin/main...HEAD)
+        
+        sensitive_patterns=(
+          "terraform.tfvars"
+          "*.tfstate"
+          "*.tfstate.backup"
+          ".env"
+          "id_rsa"
+          "*.pem"
+          "*.key"
+        )
+        
+        for pattern in "${sensitive_patterns[@]}"; do
+          if echo "$added_files" | grep -q "$pattern"; then
+            echo "❌ Sensitive file detected: $pattern"
+            echo "Please remove sensitive files and add them to .gitignore"
+            exit 1
+          fi
+        done
+        
+        echo "✅ No sensitive files detected"
+
+  # Size and performance check
+  pr-size-check:
+    name: PR Size Check  
+    runs-on: ubuntu-latest
+    needs: check-pr-status
+    if: needs.check-pr-status.outputs.should_run == 'true'
+    
+    steps:
+    - name: Checkout PR
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+
+    - name: Check PR size
+      run: |
+        git fetch origin main
+        
+        # Count changes
+        stats=$(git diff --stat origin/main...HEAD)
+        echo "PR changes:"
+        echo "$stats"
+        
+        # Get numeric stats
+        files_changed=$(git diff --name-only origin/main...HEAD | wc -l)
+        lines_added=$(git diff --numstat origin/main...HEAD | awk '{sum+=$1} END {print sum}')
+        lines_deleted=$(git diff --numstat origin/main...HEAD | awk '{sum+=$2} END {print sum}')
+        
+        echo ""
+        echo "Summary:"
+        echo "- Files changed: $files_changed"
+        echo "- Lines added: $lines_added"  
+        echo "- Lines deleted: $lines_deleted"
+        
+        # Warn if PR is very large
+        if [ "$files_changed" -gt 20 ] || [ "$lines_added" -gt 500 ]; then
+          echo ""
+          echo "⚠️  Large PR detected!"
+          echo "Consider breaking this into smaller, focused PRs for easier review."
+        fi
+
+  # PR summary
+  pr-summary:
+    name: PR Summary
+    runs-on: ubuntu-latest
+    needs: [pr-validation, pr-security, pr-size-check]
+    if: always() && needs.check-pr-status.outputs.should_run == 'true'
+    
+    steps:
+    - name: PR Summary
+      run: |
+        echo "## PR Summary"
+        echo ""
+        
+        if [ "${{ needs.pr-validation.result }}" = "success" ]; then
+          echo "✅ Code validation passed"
+        else
+          echo "❌ Code validation failed"
+        fi
+        
+        if [ "${{ needs.pr-security.result }}" = "success" ]; then
+          echo "✅ Security scan passed"
+        else
+          echo "❌ Security scan failed"
+        fi
+        
+        if [ "${{ needs.pr-size-check.result }}" = "success" ]; then
+          echo "✅ Size check completed"
+        else
+          echo "❌ Size check failed"
+        fi
+        
+        echo ""
+        echo "Thank you for your contribution! 🎉"
