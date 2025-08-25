@@ -1,112 +1,85 @@
 locals {
   cluster_name = var.cluster_name
-  
-  # Base port mappings
-  base_ports = [
-    {
-      host      = var.http_port
-      container = 80
-      node      = "loadbalancer"
-    },
-    {
-      host      = var.https_port
-      container = 443
-      node      = "loadbalancer"
-    }
+
+  # Build k3d command arguments
+  port_mappings = concat([
+    "--port=${var.http_port}:80@loadbalancer",
+    "--port=${var.https_port}:443@loadbalancer"
+    ], var.enable_monitoring ? [
+    "--port=3000:3000@loadbalancer",
+    "--port=9090:9090@loadbalancer",
+    "--port=9093:9093@loadbalancer"
+    ] : [], [
+    for port in var.additional_ports :
+    "--port=${port.host}:${port.container}@${join(",", port.node_filters)}"
+  ])
+
+  server_args = length(var.k3s_server_args) > 0 ? "--k3s-arg=${join(" --k3s-arg=", [for arg in var.k3s_server_args : "${arg}@server"])}" : ""
+  agent_args  = length(var.k3s_agent_args) > 0 ? "--k3s-arg=${join(" --k3s-arg=", [for arg in var.k3s_agent_args : "${arg}@agent"])}" : ""
+
+  volume_mounts = [
+    for volume in var.volumes :
+    "--volume=${volume.source}:${volume.destination}@${join(",", volume.node_filters)}"
   ]
-  
-  # Monitoring ports (if enabled)
-  monitoring_ports = var.enable_monitoring ? [
-    {
-      host      = 3000
-      container = 3000
-      node      = "loadbalancer"
-    },
-    {
-      host      = 9090
-      container = 9090
-      node      = "loadbalancer"
-    },
-    {
-      host      = 9093
-      container = 9093
-      node      = "loadbalancer"
-    }
-  ] : []
-  
-  # Combine all port mappings
-  all_ports = concat(local.base_ports, local.monitoring_ports, var.additional_ports)
+
+  env_vars = [
+    for env in var.environment_variables :
+    "--env=${env.key}=${env.value}@all"
+  ]
 }
 
-# k3d cluster resource
-resource "k3d_cluster" "main" {
-  name    = local.cluster_name
-  servers = var.server_count
-  agents  = var.agent_count
-  
-  # K3s configuration
-  k3s {
-    extra_args {
-      server_args = var.k3s_server_args
-      agent_args  = var.k3s_agent_args
+# Create k3d cluster using null_resource
+resource "null_resource" "k3d_cluster" {
+  # Trigger recreation when key variables change
+  triggers = {
+    cluster_name = var.cluster_name
+    servers      = var.server_count
+    agents       = var.agent_count
+    ports        = join(",", local.port_mappings)
+    monitoring   = var.enable_monitoring
+  }
+
+  # Create cluster
+  provisioner "local-exec" {
+    command = <<-EOT
+      k3d cluster create ${local.cluster_name} \
+        --servers ${var.server_count} \
+        --agents ${var.agent_count} \
+        ${join(" ", local.port_mappings)} \
+        ${length(local.volume_mounts) > 0 ? join(" ", local.volume_mounts) : ""} \
+        ${length(local.env_vars) > 0 ? join(" ", local.env_vars) : ""} \
+        ${local.server_args != "" ? local.server_args : ""} \
+        ${local.agent_args != "" ? local.agent_args : ""} \
+        --network ${var.network_name} \
+        --image ${var.k3s_image} \
+        --timeout ${var.cluster_timeout}s \
+        --wait
+    EOT
+
+    # Set timeout for the command
+    environment = {
+      K3D_FIX_DNS = "1"
     }
   }
-  
-  # Port mappings for LoadBalancer services
-  dynamic "port" {
-    for_each = local.all_ports
-    content {
-      host_port      = port.value.host
-      container_port = port.value.container
-      node_filters   = [port.value.node]
-    }
+
+  # Destroy cluster
+  provisioner "local-exec" {
+    when    = destroy
+    command = "k3d cluster delete ${self.triggers.cluster_name} || true"
   }
-  
-  # Volume mounts
-  dynamic "volume" {
-    for_each = var.volumes
-    content {
-      source      = volume.value.source
-      destination = volume.value.destination
-      node_filters = volume.value.node_filters
-    }
+}
+
+# Wait for cluster to be ready
+resource "null_resource" "cluster_ready" {
+  depends_on = [null_resource.k3d_cluster]
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      # Wait for cluster to be accessible
+      timeout 60s bash -c 'until kubectl --context=k3d-${local.cluster_name} cluster-info >/dev/null 2>&1; do sleep 2; done'
+      
+      # Wait for nodes to be ready
+      kubectl --context=k3d-${local.cluster_name} wait --for=condition=Ready nodes --all --timeout=60s
+    EOT
   }
-  
-  # Environment variables
-  dynamic "env" {
-    for_each = var.environment_variables
-    content {
-      key   = env.value.key
-      value = env.value.value
-    }
-  }
-  
-  # Registry configuration
-  dynamic "registry" {
-    for_each = var.registries
-    content {
-      name = registry.value.name
-      host = registry.value.host
-      port = registry.value.port
-    }
-  }
-  
-  # Labels
-  dynamic "label" {
-    for_each = var.labels
-    content {
-      key          = label.value.key
-      value        = label.value.value
-      node_filters = label.value.node_filters
-    }
-  }
-  
-  # Network settings
-  network = var.network_name
-  
-  # Timeout for cluster operations
-  timeout = "${var.cluster_timeout}s"
-  
-  # K3s image
-  image = var.k3s_image
 }

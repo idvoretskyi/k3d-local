@@ -6,14 +6,14 @@ resource "kubernetes_namespace" "monitoring" {
     name = var.monitoring_namespace
 
     labels = {
-      name                               = var.monitoring_namespace
-      "pod-security.kubernetes.io/audit" = "privileged"
+      name                                 = var.monitoring_namespace
+      "pod-security.kubernetes.io/audit"   = "privileged"
       "pod-security.kubernetes.io/enforce" = "privileged"
-      "pod-security.kubernetes.io/warn" = "privileged"
+      "pod-security.kubernetes.io/warn"    = "privileged"
     }
   }
 
-  depends_on = [k3d_cluster.main]
+  depends_on = [null_resource.cluster_ready]
 }
 
 # kube-prometheus-stack Helm chart
@@ -221,7 +221,7 @@ resource "kubernetes_service" "grafana_loadbalancer" {
   metadata {
     name      = "grafana-loadbalancer"
     namespace = kubernetes_namespace.monitoring[0].metadata[0].name
-    
+
     labels = {
       app = "grafana-loadbalancer"
     }
@@ -252,7 +252,7 @@ resource "kubernetes_service" "prometheus_loadbalancer" {
   metadata {
     name      = "prometheus-loadbalancer"
     namespace = kubernetes_namespace.monitoring[0].metadata[0].name
-    
+
     labels = {
       app = "prometheus-loadbalancer"
     }
@@ -283,7 +283,7 @@ resource "kubernetes_service" "alertmanager_loadbalancer" {
   metadata {
     name      = "alertmanager-loadbalancer"
     namespace = kubernetes_namespace.monitoring[0].metadata[0].name
-    
+
     labels = {
       app = "alertmanager-loadbalancer"
     }

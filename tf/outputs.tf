@@ -1,12 +1,12 @@
 output "cluster_name" {
   description = "Name of the created k3d cluster"
-  value       = k3d_cluster.main.name
+  value       = var.cluster_name
 }
 
 output "cluster_endpoint" {
   description = "Kubernetes API server endpoint"
   sensitive   = true
-  value       = k3d_cluster.main.kubeconfig.0.cluster_ca_certificate != null ? "https://0.0.0.0:${k3d_cluster.main.kubeconfig.0.port}" : "Check ~/.kube/config for endpoint"
+  value       = "Check ~/.kube/config for endpoint or run: kubectl cluster-info --context=k3d-${var.cluster_name}"
 }
 
 output "kubeconfig_path" {
@@ -17,11 +17,11 @@ output "kubeconfig_path" {
 output "cluster_info" {
   description = "Complete cluster information"
   value = {
-    name         = k3d_cluster.main.name
-    servers      = k3d_cluster.main.servers
-    agents       = k3d_cluster.main.agents
-    network      = k3d_cluster.main.network
-    k3s_image    = var.k3s_image
+    name      = var.cluster_name
+    servers   = var.server_count
+    agents    = var.agent_count
+    network   = var.network_name
+    k3s_image = var.k3s_image
   }
 }
 
@@ -44,7 +44,7 @@ output "access_urls" {
 
 output "kubectl_context" {
   description = "kubectl context name for the cluster"
-  value       = "k3d-${k3d_cluster.main.name}"
+  value       = "k3d-${var.cluster_name}"
 }
 
 # Monitoring Outputs
@@ -67,25 +67,25 @@ output "grafana_admin_password" {
 output "monitoring_access_urls" {
   description = "URLs for accessing monitoring services via LoadBalancer"
   value = var.enable_monitoring ? {
-    grafana = var.enable_grafana_loadbalancer ? "http://localhost:3000" : "Use port-forward: kubectl port-forward -n ${var.monitoring_namespace} svc/kube-prometheus-stack-grafana 3000:80"
-    prometheus = var.enable_prometheus_loadbalancer ? "http://localhost:9090" : "Use port-forward: kubectl port-forward -n ${var.monitoring_namespace} svc/kube-prometheus-stack-prometheus 9090:9090"
+    grafana      = var.enable_grafana_loadbalancer ? "http://localhost:3000" : "Use port-forward: kubectl port-forward -n ${var.monitoring_namespace} svc/kube-prometheus-stack-grafana 3000:80"
+    prometheus   = var.enable_prometheus_loadbalancer ? "http://localhost:9090" : "Use port-forward: kubectl port-forward -n ${var.monitoring_namespace} svc/kube-prometheus-stack-prometheus 9090:9090"
     alertmanager = var.enable_alertmanager_loadbalancer ? "http://localhost:9093" : "Use port-forward: kubectl port-forward -n ${var.monitoring_namespace} svc/kube-prometheus-stack-alertmanager 9093:9093"
   } : null
 }
 
 output "monitoring_commands" {
   description = "Useful commands for monitoring stack"
-  value = var.enable_monitoring ? "Monitoring Stack Commands:\n\n# Check monitoring pods\nkubectl get pods -n ${var.monitoring_namespace}\n\n# Port-forward Grafana (if LoadBalancer not enabled)\nkubectl port-forward -n ${var.monitoring_namespace} svc/kube-prometheus-stack-grafana 3000:80\n\n# Port-forward Prometheus (if LoadBalancer not enabled)\nkubectl port-forward -n ${var.monitoring_namespace} svc/kube-prometheus-stack-prometheus 9090:9090\n\n# Port-forward Alertmanager (if LoadBalancer not enabled)\nkubectl port-forward -n ${var.monitoring_namespace} svc/kube-prometheus-stack-alertmanager 9093:9093\n\n# View Grafana logs\nkubectl logs -n ${var.monitoring_namespace} -l app.kubernetes.io/name=grafana\n\n# View Prometheus logs\nkubectl logs -n ${var.monitoring_namespace} -l app.kubernetes.io/name=prometheus" : null
+  value       = var.enable_monitoring ? "Monitoring Stack Commands:\n\n# Check monitoring pods\nkubectl get pods -n ${var.monitoring_namespace}\n\n# Port-forward Grafana (if LoadBalancer not enabled)\nkubectl port-forward -n ${var.monitoring_namespace} svc/kube-prometheus-stack-grafana 3000:80\n\n# Port-forward Prometheus (if LoadBalancer not enabled)\nkubectl port-forward -n ${var.monitoring_namespace} svc/kube-prometheus-stack-prometheus 9090:9090\n\n# Port-forward Alertmanager (if LoadBalancer not enabled)\nkubectl port-forward -n ${var.monitoring_namespace} svc/kube-prometheus-stack-alertmanager 9093:9093\n\n# View Grafana logs\nkubectl logs -n ${var.monitoring_namespace} -l app.kubernetes.io/name=grafana\n\n# View Prometheus logs\nkubectl logs -n ${var.monitoring_namespace} -l app.kubernetes.io/name=prometheus" : null
 }
 
 output "next_steps" {
   description = "Instructions for next steps after cluster creation"
   sensitive   = true
-  value = <<-EOT
-  Your k3d cluster '${k3d_cluster.main.name}' has been created successfully!
+  value       = <<-EOT
+  Your k3d cluster '${var.cluster_name}' has been created successfully!
   
   Next steps:
-  1. Set kubectl context: kubectl config use-context k3d-${k3d_cluster.main.name}
+  1. Set kubectl context: kubectl config use-context k3d-${var.cluster_name}
   2. Verify cluster: kubectl cluster-info
   3. Check nodes: kubectl get nodes
   4. Deploy applications: kubectl apply -f your-manifests/

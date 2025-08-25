@@ -8,7 +8,7 @@ variable "server_count" {
   description = "Number of server nodes in the cluster"
   type        = number
   default     = 1
-  
+
   validation {
     condition     = var.server_count >= 1 && var.server_count <= 5
     error_message = "Server count must be between 1 and 5."
@@ -19,7 +19,7 @@ variable "agent_count" {
   description = "Number of agent nodes in the cluster"
   type        = number
   default     = 2
-  
+
   validation {
     condition     = var.agent_count >= 0 && var.agent_count <= 10
     error_message = "Agent count must be between 0 and 10."
@@ -30,7 +30,7 @@ variable "http_port" {
   description = "Host port for HTTP traffic (mapped to LoadBalancer port 80)"
   type        = number
   default     = 8080
-  
+
   validation {
     condition     = var.http_port > 1024 && var.http_port < 65535
     error_message = "HTTP port must be between 1024 and 65535."
@@ -41,7 +41,7 @@ variable "https_port" {
   description = "Host port for HTTPS traffic (mapped to LoadBalancer port 443)"
   type        = number
   default     = 8443
-  
+
   validation {
     condition     = var.https_port > 1024 && var.https_port < 65535
     error_message = "HTTPS port must be between 1024 and 65535."
@@ -128,7 +128,7 @@ variable "cluster_timeout" {
   description = "Timeout for cluster operations (in seconds)"
   type        = number
   default     = 300
-  
+
   validation {
     condition     = var.cluster_timeout >= 60 && var.cluster_timeout <= 1800
     error_message = "Cluster timeout must be between 60 and 1800 seconds."
